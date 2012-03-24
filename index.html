@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>IP Ranges</title>
+  <link rel="stylesheet" href="/style.css" type="text/css" media="screen" charset="utf-8">
+  <script src="https://raw.github.com/mbostock/d3/master/d3.v2.min.js"></script>
+  <script src="https://raw.github.com/square/tesseract/master/tesseract.min.js"></script>
+  <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
+  <script src="lib.js"></script>
+</head>
+<body>
+  <div id="plot"></div>
+  <div id="charts-right">
+    <div id="a-chart" class="chart">
+      <div class="title">Class A</div>
+    </div>
+    <div id="b-chart" class="chart">
+      <div class="title">Class B</div>
+    </div>
+    <div id="c-chart" class="chart">
+      <div class="title">Class C</div>
+    </div>
+    <div id="d-chart" class="chart">
+      <div class="title">Class D</div>
+    </div>
+  </div>
+  <div id="slider">
+      <input id="opacity" type="range" min="0.01" max="0.5" step="0.01" value="0.04">
+  </div>
+  <div id="charts-bottom">
+    <div id="year-chart" class="chart">
+      <div class="title">Year</div>
+    </div>
+    <div id="range-chart" class="chart">
+      <div class="title">Ranges</div>
+    </div>
+    <div id="country-chart" class="chart">
+      <div class="title">Country</div>
+    </div>
+  </div>
+  
+  <script>
+  var layers=new Array(256);
+  for (i=0;i<256;i++){
+    plot=document.getElementById("plot");
+    canvas = document.createElement('canvas');  
+    canvas.setAttribute('style','z-index: '+(255-i)+';margin-left:'+(255-i)+'px;margin-top:'+(i)+'px');
+    canvas.setAttribute('class','layer');  
+    canvas.setAttribute('width',256);  
+    canvas.setAttribute('height',256);
+    context=canvas.getContext("2d");  
+    plot.appendChild(canvas); 
+    layers[i]=context;
+  }
+
+  function setPixel(image,index){
+    image.data[index+0] = 0x4D;
+    image.data[index+1] = 0x87;
+    image.data[index+2] = 0xB7;
+    image.data[index+3] = 0xFF;    
+  }
+
+  function updateLayers(data){
+    for (i=0;i<256;i++){
+      imageData=layers[i].createImageData(256,256)
+      if (data.hasOwnProperty(i)){
+        for (j=0;j<data[i].length;j++){
+          block=data[i][j];
+          // Do Class B's
+          for (x = block.b1; x<block.b2; x++) {
+            for (y = block.c1; y<block.c2; y++) {
+              setPixel(imageData,(x+y*256)*4);
+            }
+          }            
+          //Do Class C's
+          for (y = block.c1; y<block.c2; y++) {
+            setPixel(imageData,(block.b1+y*256)*4);
+          }
+          // Do Class D's
+          setPixel(imageData,(block.b1+block.c1*256)*4);
+        }
+      }
+      layers[i].putImageData(imageData, 0, 0); 
+    }
+  }
+    
+  d3.csv("ip2country.csv", function(data) {
+    var nestByDate = d3.nest()
+        .key(function(d) { return d3.time.month(d.registered); });
+    var nestByClass = d3.nest()
+        .key(function(d){ return d.a})
+        .sortValues(function(a,b){return a.i<b.i?-1:a.i>b.i?1:0;});
+    var ips=[];
+    data.forEach(function(d, i) {
+      ips.push({
+        i: i,
+        r: new Date(d.registered*1000),
+        a: (d.start&0xFF000000)>>>24,
+        b1: (d.start&0x00FF0000)>>>16,
+        b2: (d.end&0x00FF0000)>>>16,
+        c1: (d.start&0x0000FF00)>>>8,
+        c2: (d.end&0x0000FF00)>>>8,
+        d1: d.start&0x000000FF,
+        d2: d.end&0x000000FF,
+        l: +d.end-d.start+1,
+      });
+    });
+    
+    // Create the tesseract and relevant dimensions and groups.
+    ip = tesseract(ips);
+    all = ip.groupAll();
+    registered = ip.dimension(function(d) { return d.r; }),
+    registrations = registered.group(function(d) {return d3.time.year(d);}),
+    registeredExtents=d3.extent(registrations.all(),function(d){return d.key});
+    // registeredExtents[1].setFullYear(registeredExtents[1].getFullYear()+1);
+    length = ip.dimension(function(d){return d.l;});
+    // lengths = length.group();
+    lengths = length.group().reduceSum(function(d){return d.l});
+    lengthsExtent=d3.extent(lengths.all(),function(d){return d.key});
+    lengthsExtent[1]+=100000000;
+    classA = ip.dimension(function(d){return d.a});
+    classAs = classA.group().reduceSum(function(d){return d.l});
+    classB = ip.dimension(function(d){return d.b1});
+    classBs = classB.group().reduceSum(function(d){return d.l});
+    classC = ip.dimension(function(d){return d.c1});
+    classCs = classC.group().reduceSum(function(d){return d.l});
+    classD = ip.dimension(function(d){return d.d1});
+    classDs = classD.group().reduceSum(function(d){return d.l});
+
+    // dump(lengths);
+    console.log(lengths.all().map(function(d){return d.key;}));
+
+    var charts = [
+        barChart()
+          .dimension(classA)
+          .group(classAs)
+        .x(d3.scale.linear()
+          .domain([0,255])
+          .range([0,255])),
+        barChart()
+          .dimension(classB)
+          .group(classBs)
+        .x(d3.scale.linear()
+          .domain([0,255])
+          .range([0,255])),
+        barChart()
+          .dimension(classC)
+          .group(classCs)
+        .x(d3.scale.linear()
+          .domain([0,255])
+          .range([0,255])),
+        barChart()
+          .dimension(classD)
+          .group(classDs)
+        .x(d3.scale.linear()
+          .domain([0,255])
+          .range([0,255])),
+        barChart()
+          .dimension(registered)
+          .group(registrations)
+        .x(d3.time.scale()
+          .domain(registeredExtents)
+          .rangeRound([0,255])),
+        barChart()
+          .dimension(length)
+          .group(lengths)
+        .x(d3.scale.log()
+          .domain(lengthsExtent)
+          .range([0,255])),
+        
+    ];
+
+    // Given our array of charts, which we assume are in the same order as the
+    // .chart elements in the DOM, bind the charts to the DOM and render them.
+    // We also listen to the chart's brush events to update the display.
+    var chart = d3.selectAll(".chart")
+        .data(charts)
+        .each(function(chart) { chart.on("brush", renderAll).on("brushend", renderAll); });
+
+    // Render the initial lists.
+    // var list = d3.selectAll(".list")
+    //     .data([ipList]);
+
+    // Render the total.
+    // d3.selectAll("#total")
+    //     .text(formatNumber(ip.size()));
+
+    renderAll();
+
+    // Renders the specified chart or list.
+    function render(method) {
+      d3.select(this).call(method);
+    }
+
+    // Whenever the brush moves, re-rendering everything.
+    function renderAll() {
+      chart.each(render);
+      updateLayers(nestByClass.map(classA.top(Infinity)));
+      // list.each(render);
+      // d3.select("#active").text(formatNumber(all.value()));
+    }
+
+    window.filter = function(filters) {
+      filters.forEach(function(d, i) { charts[i].filter(d); });
+      renderAll();
+    };
+
+    window.reset = function(i) {
+      charts[i].filter(null);
+      renderAll();
+    };
+
+    $("#opacity").change(function(){
+      $(".layer").css('opacity',this.value);
+    });
+    // console.log(nestByClass.map(a.top(Infinity)));
+    // 
+    // 
+    // nestByClass.entries(a.top(Infinity)).forEach(function(d,i){
+    //   console.log(d.key);
+    //   // console.log(d.key,d.values);
+    // });
+    
+    
+    // dump(block.group());
+    // country = ip.dimension(function(d){return d.country;})
+    // a=ip.dimension(function(d){return d.a});
+    // aByIPCount = a.group().reduceSum(function(d){return d.length});
+    // dump(a.group());
+    // dump(aByIPCount);
+    // b=ip.dimension(function(d){return d.b});
+    // bByIPCount = b.group().reduceSum(function(d){return d.length});
+    // dump(b.group());
+    // dump(bByIPCount);
+    // c=ip.dimension(function(d){return d.c});
+    // cByIPCount = c.group().reduceSum(function(d){return d.length});
+    // dump(c.group());
+    // dump(cByIPCount);
+    // d=ip.dimension(function(d){return d.d});
+    // dByIPCount = d.group().reduceSum(function(d){return d.d});
+    // dump(d.group());
+    // dump(dByIPCount);
+
+    // dump(block.group());
+    // dump(blocksByIPCount);
+    // console.log(sum(block.group()));
+    // console.log(sum(blocksByIPCount));
+    // // dumpDimension(country);
+    // country.filter("United Kingdom");
+    // console.log(sum(block.group()));
+    // console.log(sum(blocksByIPCount));
+
+    // dumpDimension(block);  
+    // dumpDimension(country);
+    // console.log(country.group().size());
+    // console.log(block.group().size());
+    // console.log(block.group().all());
+    
+    // ip.registration = ip.dimension(function(d) { return d.registered;}),
+    // ip.registrationsByYear = ip.registration.group(function(d){return d3.time.year(d)}),
+    // ip.country = ip.dimension(function(d) {return d.country; }),
+    // ip.countries = ip.country.group();
+    // 
+    // nestByDate.entries(ip.registration.top(Infinity)).forEach(function(d,i){
+    //   console.log(d.key,d.values.length);
+    // });
+    // ip.registration.filter([new Date(1980,0,1),new Date(1990,0,1)]);
+    // ip.country.filter('United States');
+    // console.log("--------");
+    // nestByDate.entries(ip.registration.top(Infinity)).forEach(function(d,i){
+    //   console.log(d.key,d.values.length);
+    // });
+
+  });
+
+  </script>
+</body>
+</html>
