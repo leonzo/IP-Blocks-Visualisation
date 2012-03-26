@@ -45,8 +45,27 @@ h1, h2 {
 #plot{
   width:512px;
   height:512px;
-  margin:20px;
   float:left;
+}
+
+#map{
+  width:512px;
+  height:360px;
+  float:left;
+}
+
+#map path {
+  fill: lightgray;
+  stroke: #fff;
+}
+
+#map path.selected {
+  fill: steelblue;
+}
+
+#map svg{
+  width:512px;
+  height:360px;
 }
 
 #slider{
@@ -67,15 +86,10 @@ h1, h2 {
   float:right;
 }
 
-#charts-bottom{
-  width:600px;
-  float:left;
-}
-
 .chart {
   display: inline-block;
-  height: 151px;
-  margin-bottom: 20px;
+  height: 101px;
+  margin-bottom: 10px;
 }
 
 .reset {
